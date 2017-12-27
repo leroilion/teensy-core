@@ -1,0 +1,68 @@
+[binaries]
+c = '/opt/gcc-arm-none-eabi-7-2017-q4-major/bin/arm-none-eabi-gcc'
+cpp = '/opt/gcc-arm-none-eabi-7-2017-q4-major/bin/arm-none-eabi-g++'
+ar = '/opt/gcc-arm-none-eabi-7-2017-q4-major/bin/arm-none-eabi-ar'
+strip = '/opt/gcc-arm-none-eabi-7-2017-q4-major/bin/arm-none-eabi-strip'
+
+[host_machine]
+system = 'bare-metal'
+cpu_family = 'arm'
+cpu = 'cortex-m4'
+endian = 'little'
+
+[properties]
+
+teensy_mcu = 'mk64fx512'
+teensy_ldscript = 'teensy3/mk64fx512.ld'
+objcopy = '/opt/gcc-arm-none-eabi-7-2017-q4-major/bin/arm-none-eabi-objcopy'
+
+c_args = [
+    '-DF_CPU=120000000',
+    '-DUSB_SERIAL',
+    '-DLAYOUT_US_ENGLISH',
+    '-mthumb',
+    '-ffunction-sections',
+    '-fdata-sections',
+    '-nostdlib',
+    '-DTEENSYDUINO=135',
+    '-D__MK64FX512__',
+    '-mcpu=cortex-m4',
+    '-mfloat-abi=hard',
+    '-mfpu=fpv4-sp-d16'
+    ]
+
+cpp_args = [
+    '-DF_CPU=120000000',
+    '-DUSB_SERIAL',
+    '-DLAYOUT_US_ENGLISH',
+    '-mthumb',
+    '-ffunction-sections',
+    '-fdata-sections',
+    '-nostdlib',
+    '-DTEENSYDUINO=135',
+    '-D__MK64FX512__',
+    '-mcpu=cortex-m4',
+    '-mfloat-abi=hard',
+    '-mfpu=fpv4-sp-d16',
+    '-felide-constructors',
+    '-fno-exceptions',
+    '-fno-rtti'
+    ]
+
+c_link_args = [
+    '-Os',
+    '-Wl,--gc-sections',
+    '-mthumb',
+    '-mcpu=cortex-m4',
+    '-mfloat-abi=hard',
+    '-mfpu=fpv4-sp-d16'
+    ]
+
+cpp_link_args = [
+    '-Os',
+    '-Wl,--gc-sections',
+    '-mthumb',
+    '-mcpu=cortex-m4',
+    '-mfloat-abi=hard',
+    '-mfpu=fpv4-sp-d16'
+    ]
