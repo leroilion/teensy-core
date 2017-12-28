@@ -10,10 +10,10 @@
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
  *
- * 1. The above copyright notice and this permission notice shall be 
+ * 1. The above copyright notice and this permission notice shall be
  * included in all copies or substantial portions of the Software.
  *
- * 2. If the Software is incorporated into a build system that allows 
+ * 2. If the Software is incorporated into a build system that allows
  * selection among a list of target devices, then similar target
  * devices manufactured by PJRC.COM must be included in the list of
  * target devices and selectable in the same manner.
@@ -32,6 +32,10 @@
 #include "core_pins.h" // testing only
 #include "ser_print.h" // testing only
 
+#ifdef FREE_RTOS
+#include "FreeRTOS.h"
+#include "task.h"
+#endif
 
 // Flash Security Setting. On Teensy 3.2, you can lock the MK20 chip to prevent
 // anyone from reading your code.  You CAN still reprogram your Teensy while
@@ -65,7 +69,11 @@ extern unsigned long _estack;
 
 extern int main (void);
 void ResetHandler(void);
+#ifdef FREE_RTOS
+void _init_Teensyduino_internal_(void);
+#else
 void _init_Teensyduino_internal_(void) __attribute__((noinline));
+#endif // FREE_RTOS
 void __libc_init_array(void);
 
 
@@ -136,21 +144,56 @@ void unused_isr(void)
 	fault_isr();
 }
 
+#ifdef FREE_RTOS
+// from FreeRTOS port
+void xPortPendSVHandler( void ) __attribute__ (( naked ));
+void xPortSysTickHandler( void );
+void vPortSVCHandler( void ) __attribute__ (( naked ));
+#endif
+
+// from Arduino port
 extern volatile uint32_t systick_millis_count;
+#ifdef FREE_RTOS
+__attribute__ (( weak, naked )) void systick_isr(void) {
+	// increment the systick counter
+	systick_millis_count += 1000/configTICK_RATE_HZ;
+
+	// unconditionally branch to the systick handler
+	__asm volatile (
+		"B	xPortSysTickHandler"
+	);
+}
+
+void vApplicationStackOverflowHook( xTaskHandle pxTask, char *pcTaskName )
+{
+	( void ) pcTaskName;
+	( void ) pxTask;
+
+	/* Run time stack overflow checking is performed if
+	configconfigCHECK_FOR_STACK_OVERFLOW is defined to 1 or 2.  This hook
+	function is called if a stack overflow is detected. */
+	taskDISABLE_INTERRUPTS();
+	fault_isr();
+	for( ;; );
+}
+#else
 void systick_default_isr(void)
 {
 	systick_millis_count++;
 }
+#endif
 
 void nmi_isr(void)		__attribute__ ((weak, alias("unused_isr")));
 void hard_fault_isr(void)	__attribute__ ((weak, alias("fault_isr")));
 void memmanage_fault_isr(void)	__attribute__ ((weak, alias("fault_isr")));
 void bus_fault_isr(void)	__attribute__ ((weak, alias("fault_isr")));
 void usage_fault_isr(void)	__attribute__ ((weak, alias("fault_isr")));
-void svcall_isr(void)		__attribute__ ((weak, alias("unused_isr")));
 void debugmonitor_isr(void)	__attribute__ ((weak, alias("unused_isr")));
+#ifndef FREE_RTOS
 void pendablesrvreq_isr(void)	__attribute__ ((weak, alias("unused_isr")));
 void systick_isr(void)		__attribute__ ((weak, alias("systick_default_isr")));
+void svcall_isr(void)		__attribute__ ((weak, alias("unused_isr")));
+#endif
 
 void dma_ch0_isr(void)		__attribute__ ((weak, alias("unused_isr")));
 void dma_ch1_isr(void)		__attribute__ ((weak, alias("unused_isr")));
@@ -267,7 +310,12 @@ __attribute__ ((section(".dmabuffers"), used, aligned(512)))
 #elif defined(__MK66FX1M0__)
 __attribute__ ((section(".dmabuffers"), used, aligned(512)))
 #endif
+#ifdef FREE_RTOS
+// Vectors RAM MUST be 256 aligned!!!!
+void (* _VectorsRam[NVIC_NUM_INTERRUPTS+16])(void) __attribute__ ((aligned(256)));
+#else
 void (* _VectorsRam[NVIC_NUM_INTERRUPTS+16])(void);
+#endif
 
 __attribute__ ((section(".vectors"), used))
 void (* const _VectorsFlash[NVIC_NUM_INTERRUPTS+16])(void) =
@@ -283,10 +331,18 @@ void (* const _VectorsFlash[NVIC_NUM_INTERRUPTS+16])(void) =
 	fault_isr,					//  8 --
 	fault_isr,					//  9 --
 	fault_isr,					// 10 --
+#ifdef FREE_RTOS
+	vPortSVCHandler,					// 11 ARM: Supervisor call (SVCall)
+#else
 	svcall_isr,					// 11 ARM: Supervisor call (SVCall)
+#endif
 	debugmonitor_isr,				// 12 ARM: Debug Monitor
 	fault_isr,					// 13 --
+#ifdef FREE_RTOS
+	xPortPendSVHandler,				// 14 ARM: Pendable req serv(PendableSrvReq)
+#else
 	pendablesrvreq_isr,				// 14 ARM: Pendable req serv(PendableSrvReq)
+#endif
 	systick_isr,					// 15 ARM: System tick timer (SysTick)
 #if defined(__MK20DX128__)
 	dma_ch0_isr,					// 16 DMA channel 0 transfer complete
@@ -766,7 +822,7 @@ void ResetHandler(void)
 #else
 	SMC_PMPROT = SMC_PMPROT_AVLP | SMC_PMPROT_ALLS | SMC_PMPROT_AVLLS;
 #endif
-    
+
 	// TODO: do this while the PLL is waiting to lock....
 	while (dest < &_edata) *dest++ = *src++;
 	dest = &_sbss;
@@ -1071,13 +1127,13 @@ void ResetHandler(void)
 		| SIM_SOPT2_UART0SRC(1) | SIM_SOPT2_TPMSRC(1);
 	#endif
 #else
-    
+
 #if F_CPU == 2000000
 	SIM_SOPT2 = SIM_SOPT2_TRACECLKSEL | SIM_SOPT2_CLKOUTSEL(4) | SIM_SOPT2_UART0SRC(3);
 #else
     SIM_SOPT2 = SIM_SOPT2_TRACECLKSEL | SIM_SOPT2_CLKOUTSEL(6) | SIM_SOPT2_UART0SRC(2);
 #endif
-    
+
 #endif
 
 #if F_CPU <= 2000000
@@ -1085,11 +1141,13 @@ void ResetHandler(void)
 	SMC_PMCTRL = SMC_PMCTRL_RUNM(2); // VLPR mode :-)
 #endif
 
+#ifndef FREE_RTOS
 	// initialize the SysTick counter
 	SYST_RVR = (F_CPU / 1000) - 1;
 	SYST_CVR = 0;
 	SYST_CSR = SYST_CSR_CLKSOURCE | SYST_CSR_TICKINT | SYST_CSR_ENABLE;
 	SCB_SHPR3 = 0x20200000;  // Systick = priority 32
+#endif
 
 	//init_pins();
 	__enable_irq();
@@ -1144,13 +1202,13 @@ void * _sbrk(int incr)
 	return prev;
 }
 
-__attribute__((weak)) 
+__attribute__((weak))
 int _read(int file, char *ptr, int len)
 {
 	return 0;
 }
 
-__attribute__((weak)) 
+__attribute__((weak))
 int _close(int fd)
 {
 	return -1;
@@ -1158,44 +1216,44 @@ int _close(int fd)
 
 #include <sys/stat.h>
 
-__attribute__((weak)) 
+__attribute__((weak))
 int _fstat(int fd, struct stat *st)
 {
 	st->st_mode = S_IFCHR;
 	return 0;
 }
 
-__attribute__((weak)) 
+__attribute__((weak))
 int _isatty(int fd)
 {
 	return 1;
 }
 
-__attribute__((weak)) 
+__attribute__((weak))
 int _lseek(int fd, long long offset, int whence)
 {
 	return -1;
 }
 
-__attribute__((weak)) 
+__attribute__((weak))
 void _exit(int status)
 {
 	while (1);
 }
 
-__attribute__((weak)) 
+__attribute__((weak))
 void __cxa_pure_virtual()
 {
 	while (1);
 }
 
-__attribute__((weak)) 
-int __cxa_guard_acquire (char *g) 
+__attribute__((weak))
+int __cxa_guard_acquire (char *g)
 {
 	return !(*g);
 }
 
-__attribute__((weak)) 
+__attribute__((weak))
 void __cxa_guard_release(char *g)
 {
 	*g = 1;

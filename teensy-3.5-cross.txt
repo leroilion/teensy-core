@@ -13,7 +13,7 @@ endian = 'little'
 [properties]
 
 teensy_mcu = 'mk64fx512'
-teensy_ldscript = 'teensy3/mk64fx512.ld'
+teensy_ldscript = 'teensy3/mk64fx512'
 objcopy = '/opt/gcc-arm-none-eabi-7-2017-q4-major/bin/arm-none-eabi-objcopy'
 
 c_args = [

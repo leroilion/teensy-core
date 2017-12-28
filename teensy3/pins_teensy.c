@@ -10,10 +10,10 @@
  * permit persons to whom the Software is furnished to do so, subject to
  * the following conditions:
  *
- * 1. The above copyright notice and this permission notice shall be 
+ * 1. The above copyright notice and this permission notice shall be
  * included in all copies or substantial portions of the Software.
  *
- * 2. If the Software is incorporated into a build system that allows 
+ * 2. If the Software is incorporated into a build system that allows
  * selection among a list of target devices, then similar target
  * devices manufactured by PJRC.COM must be included in the list of
  * target devices and selectable in the same manner.
@@ -140,6 +140,10 @@ const struct digital_pin_bitband_and_config_table_struct digital_pin_to_info_PGM
 
 #endif
 
+#ifdef FREE_RTOS
+static void delay_NoSysTick(uint32_t millis);
+#endif
+
 static void dummy_isr() {};
 
 typedef void (*voidFuncPtr)(void);
@@ -209,11 +213,13 @@ void attachInterrupt(uint8_t pin, void (*function)(void), int mode)
 	}
 	mask = (mask << 16) | 0x01000000;
 	config = portConfigRegister(pin);
+    #ifndef FREE_RTOS
 	if ((*config & 0x00000700) == 0) {
 		// for compatibility with programs which depend
 		// on AVR hardware default to input mode.
 		pinMode(pin, INPUT);
 	}
+    #endif //FREE_RTOS
 #if defined(KINETISK)
 	attachInterruptVector(IRQ_PORTA, port_A_isr);
 	attachInterruptVector(IRQ_PORTB, port_B_isr);
@@ -450,7 +456,7 @@ extern void usb_init(void);
 
 #if F_CPU > 16000000
 #define F_TIMER (F_PLL/2)
-#else 
+#else
 #define F_TIMER (F_PLL)
 #endif//Low Power
 
@@ -513,7 +519,9 @@ extern void usb_init(void);
 #endif
 
 //void init_pins(void)
+#ifndef FREE_RTOS
 __attribute__((noinline))
+#endif
 void _init_Teensyduino_internal_(void)
 {
 #if defined(__MK20DX128__) || defined(__MK20DX256__) || defined(__MK64FX512__) || defined(__MK66FX1M0__)
@@ -583,7 +591,11 @@ void _init_Teensyduino_internal_(void)
 	// for background about this startup delay, please see these conversations
 	// https://forum.pjrc.com/threads/36606-startup-time-(400ms)?p=113980&viewfull=1#post113980
 	// https://forum.pjrc.com/threads/31290-Teensey-3-2-Teensey-Loader-1-24-Issues?p=87273&viewfull=1#post87273
+#ifdef FREE_RTOS
+    delay_NoSysTick(400);
+#else
 	delay(400);
+#endif
 	usb_init();
 }
 
@@ -935,7 +947,7 @@ void analogWriteFrequency(uint8_t pin, float frequency)
 		ftmClock = F_TIMER;	// Set variable for the actual timer clock frequency
 	}
 
-	
+
 	for (prescale = 0; prescale < 7; prescale++) {
 		minfreq = (float)(ftmClock >> prescale) / 65536.0f;	//Use ftmClock instead of F_TIMER
 		if (frequency >= minfreq) break;
@@ -1071,6 +1083,7 @@ void pinMode(uint8_t pin, uint8_t mode)
 #else
 		*portModeRegister(pin) &= ~digitalPinToBitMask(pin);
 #endif
+#ifndef FREE_RTOS
 		if (mode == INPUT) {
 			*config = PORT_PCR_MUX(1);
 		} else if (mode == INPUT_PULLUP) {
@@ -1080,6 +1093,19 @@ void pinMode(uint8_t pin, uint8_t mode)
 		} else { // INPUT_DISABLE
 			*config = 0;
 		}
+#else // FREERTOS
+        if (mode == INPUT || mode == INPUT_PULLUP || mode == INPUT_PULLDOWN) {
+			*config = PORT_PCR_MUX(1);
+			if (mode == INPUT_PULLUP) {
+		    	*config |= (PORT_PCR_PE | PORT_PCR_PS); // pullup
+			} else if (mode == INPUT_PULLDOWN) {
+			    *config |= (PORT_PCR_PE); // pulldown
+			    *config &= ~(PORT_PCR_PS);
+			}
+		} else {
+			*config = PORT_PCR_MUX(1) | PORT_PCR_PE | PORT_PCR_PS; // pullup
+		}
+#endif
 	}
 }
 
@@ -1144,7 +1170,20 @@ uint8_t shiftIn_msbFirst(uint8_t dataPin, uint8_t clockPin)
         return value;
 }
 
-
+#ifdef FREE_RTOS
+/** calibration factor for delay_NoSysTick, verified timing on Teensy3.6 with F_CPU = 180000000 */
+#define CAL_FACTOR (F_CPU/6007)
+/** delay function that is safe to use when SysTick is not running yet
+ * \param[in] millis milliseconds to delay
+ */
+void delay_NoSysTick(uint32_t millis) {
+  uint32_t iterations = millis * CAL_FACTOR;
+  uint32_t i;
+  for(i = 0; i < iterations; ++i) {
+    asm volatile("nop\n\t");
+  }
+}
+#endif
 
 // the systick interrupt is supposed to increment this at 1 kHz rate
 volatile uint32_t systick_millis_count = 0;
@@ -1249,7 +1288,7 @@ uint32_t pulseIn_low(volatile uint8_t *reg, uint32_t timeout)
 {
 	uint32_t timeout_count = timeout * PULSEIN_LOOPS_PER_USEC;
 	uint32_t usec_start, usec_stop;
-	
+
 	// wait for any previous pulse to end
 	while (!*reg) {
 		if (--timeout_count == 0) return 0;
@@ -1302,7 +1341,7 @@ uint32_t pulseIn_low(volatile uint8_t *reg, uint8_t mask, uint32_t timeout)
 {
 	uint32_t timeout_count = timeout * PULSEIN_LOOPS_PER_USEC;
 	uint32_t usec_start, usec_stop;
-	
+
 	// wait for any previous pulse to end
 	while (!(*reg & mask)) {
 		if (--timeout_count == 0) return 0;
